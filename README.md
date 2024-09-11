@@ -1,1 +1,2 @@
-# desafio_1
+# desafio_1 
+Identificación de señales en arduino
