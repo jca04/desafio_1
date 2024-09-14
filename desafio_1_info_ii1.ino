@@ -4,6 +4,7 @@ LiquidCrystal_I2C lcd(0x20,16,2);
 
 void calculatePeriod(unsigned long *period, int dataOfSensor, int *actualValue);
 void calculateAmplitude(int **samplingOfdata, int *amplitude);
+void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor);
 
 unsigned const short PINSIGNAL = A0; //definicion de pines
 unsigned const short PINPUSHBUTTON1 = 7;
@@ -21,6 +22,13 @@ float frecuency = 0.0;
 bool isDecreasing = false;
 int actualValue = 0;
 int amplitude = 0;
+
+// tipo de onda
+bool isSinusoidal = false;
+bool isTriangular = false;
+bool isSquare = false;
+int maxValue = 0;
+int minValue = 0;
 
 void setup()
 {
@@ -64,6 +72,9 @@ void loop()
     
     //Calcular el periodo entre dos picos
     calculatePeriod(&period ,dataOfSensor, &actualValue);
+
+    // Calcular tipo de onda
+    calculateTypeOfWave(&maxValue, &minValue, dataOfSensor);
    
     double seconds = period / 1000000.0; //microsegundos a segundo
     
@@ -109,5 +120,52 @@ void calculatePeriod(unsigned long *period, int dataOfSensor, int *actualValue){
 void calculateAmplitude(int **samplingOfdata, int *amplitude){
 	
 }
+
+// tipo de onda
+void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor) {
+
+  if (dataOfSensor > *maxValue) *maxValue = dataOfSensor;
+  if (dataOfSensor < *minValue) *minValue = dataOfSensor;
+
+  // umbrales de tolerancia
+  int amplitude = *maxValue - *minValue;
+  int threshold = amplitude * 0.1; // 10% de la amplitud
+  int halfAmplitude = amplitude / 2;
+
+  // verificar si los valores fluctúan rápidamente entre los máximos y mínimos
+  static bool isRising = false;
+  static bool wasRising = false;
+
+  if (dataOfSensor > halfAmplitude + threshold) {
+    isRising = true; // esta subiendo
+  } else if (dataOfSensor < halfAmplitude - threshold) {
+    isRising = false; // esta bajando
+  }
+
+  // Si ha habido un cambio de estado de subida o bajada o viceversa, es triangular o sinusoidal
+  if (wasRising != isRising) {
+    if (isRising) {
+
+      // si la señal alterna entre los valores pico de forma rápida, es cuadrada
+      if (abs(*maxValue - dataOfSensor) <= threshold) {
+        isSquare = true;
+        isSinusoidal = false;
+        isTriangular = false;
+      }
+
+    }
+  }
+
+  wasRising = isRising;
+
+  if (isSquare) { // Despues se decide como se va a mostrar en el lcd
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Cuadrada");
+  }
+
+
+}
+
 
 
