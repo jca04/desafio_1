@@ -3,8 +3,9 @@
 LiquidCrystal_I2C lcd(0x20,16,2);
 
 void calculatePeriod(unsigned long *period, int dataOfSensor, int *actualValue);
-void calculateAmplitude(int **samplingOfdata, int *amplitude);
+void calculateAmplitude(int **samplingOfdata, float *amplitude);
 void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor);
+void showDataInLcd(float amplitude, float frecuency, unsigned short typeWave);
 
 unsigned const short PINSIGNAL = A0; //definicion de pines
 unsigned const short PINPUSHBUTTON1 = 7;
@@ -13,22 +14,23 @@ unsigned const short PINPUSHBUTTON2 = 4;
 //Recoleccion de datos, ejecucion principial del program
 bool isRecolecting = false;
 bool stopRecolectiong = false;
-unsigned int size = 0, TotalIndex = 0;
-int *samplingOfdata = new int[1000];
+unsigned int index = 0;
+int *samplingOfdata = new int[200];
 
 //amplitud y frecuencia
 unsigned long period = 0, firstTime = 0;
-float frecuency = 0.0;
+float frecuency = 0.0, amplitude = 0.0;
 bool isDecreasing = false;
 int actualValue = 0;
-int amplitude = 0;
 
 // tipo de onda
 bool isSinusoidal = false;
 bool isTriangular = false;
 bool isSquare = false;
+bool isUnknown = false;
 int maxValue = 0;
 int minValue = 0;
+unsigned short typeWave; 
 
 void setup()
 {
@@ -41,15 +43,16 @@ void setup()
   lcd.backlight();
   lcd.print("Bienvenido...");
   lcd.setCursor(0,1);
-  lcd.print("Opte Senales...");
 }
 
 
 void loop()
 {
   if (digitalRead(PINPUSHBUTTON1) == HIGH ){ //primer pulsador presionado
-  	isRecolecting = true;
+    if (!stopRecolectiong) isRecolecting = true;
+    delay(50);
   }
+  
   
   if (digitalRead(PINPUSHBUTTON2) == HIGH){ // segundo pulsador presionado
     if (isRecolecting) { // detener recoleccion de datos
@@ -61,40 +64,52 @@ void loop()
   
   
   if (isRecolecting && !stopRecolectiong){ // Recoleccion de datos
+    
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Recolectando..");
 
     const int dataOfSensor = analogRead(PINSIGNAL); // datos entregados por el generador
-    Serial.println(dataOfSensor);
     
-    if (TotalIndex == 1000)TotalIndex = 0;
+    if (index < 200) *(samplingOfdata + index) = dataOfSensor;
+    else index = 0;
    
-    *(samplingOfdata + TotalIndex) = dataOfSensor;
-    TotalIndex++;
+    
+    index++;
     
     //Calcular el periodo entre dos picos
     calculatePeriod(&period ,dataOfSensor, &actualValue);
-
-    // Calcular tipo de onda
-    calculateTypeOfWave(&maxValue, &minValue, dataOfSensor);
    
     double seconds = period / 1000000.0; //microsegundos a segundo
     
     if (seconds > 0.0){
       frecuency = 1.0 / seconds; // frecuencia
-      lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print(frecuency);
-   	  //Serial.println(frecuency, 7);
     }
+                         
+    // Calcular tipo de onda
+    //calculateTypeOfWave(&maxValue, &minValue, dataOfSensor);
   }
   
   if (stopRecolectiong){ // BLOQUE DE CODIGO CUANDO SE DETUVO LA RECOLECCION (AQUI VAN LOS ALGORITMOS)
-      
-     for (int i = 0; i < 1000; i++){
-      Serial.println(*(samplingOfdata + i));
-     }
-      
-     delete[] samplingOfdata;
-     samplingOfdata = nullptr;
+     
+    calculateAmplitude(&samplingOfdata, &amplitude);
+    
+    //Margen de error; 2v 
+    float vol = (amplitude * 10.0) / 1023.0;
+    
+    if (vol >= 6.0) vol += 1.1; //margen error 1.3v
+    
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print(vol);
+    
+    showDataInLcd(vol, frecuency, 1);
+    
+    delay(50);
+    stopRecolectiong = false;
+    
+    for (int i = 0; i < 200; i++) samplingOfdata[i] = 0;
+    
   }
 }
 
@@ -105,7 +120,7 @@ void calculatePeriod(unsigned long *period, int dataOfSensor, int *actualValue){
     
       unsigned const long time = micros(); //capturar el tiempo en microsegundos
   	
-      if (firstTime != 0)*period = time - firstTime;
+      if (firstTime != 0) *period = time - firstTime;
       
       firstTime = time;
       isDecreasing = true;
@@ -117,11 +132,27 @@ void calculatePeriod(unsigned long *period, int dataOfSensor, int *actualValue){
 }
 
 //calcular la amplitud
-void calculateAmplitude(int **samplingOfdata, int *amplitude){
-	
+void calculateAmplitude(int **samplingOfdata, float *amplitude){
+
+  int max = *samplingOfdata[0], min = *samplingOfdata[0];
+  
+  for (int i = 0; i < 200; i++){
+    if (*(*samplingOfdata + i) > max){
+      if (*(*samplingOfdata + i) <= 1023)
+    	max = *(*samplingOfdata + i);
+    }
+    	
+    if (*(*samplingOfdata + i) < min){
+      if (*(*samplingOfdata + i) != 0){
+     	 min = *(*samplingOfdata + i);
+      }
+    }    
+  }
+  
+  *amplitude = (max - min) / 2.0;
+ 
 }
 
-// tipo de onda
 void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor) {
 
   if (dataOfSensor > *maxValue) *maxValue = dataOfSensor;
@@ -130,7 +161,7 @@ void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor) {
   // umbrales de tolerancia
   int amplitude = *maxValue - *minValue;
   int threshold = amplitude * 0.1; // 10% de la amplitud
-  int halfAmplitude = amplitude / 2;
+  int halfAmplitude = *minValue + amplitude / 2;
 
   // verificar si los valores fluctúan rápidamente entre los máximos y mínimos
   static bool isRising = false;
@@ -146,10 +177,35 @@ void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor) {
   if (wasRising != isRising) {
     if (isRising) {
 
-      // si la señal alterna entre los valores pico de forma rápida, es cuadrada
-      if (abs(*maxValue - dataOfSensor) <= threshold) {
+      // Si la señal alcanza o se acerca a los picos de forma rápida, es cuadrada
+      if (abs(*maxValue - dataOfSensor) <= threshold || abs(*minValue - dataOfSensor) <= threshold) {
         isSquare = true;
         isSinusoidal = false;
+        isTriangular = false;
+        isUnknown = false;
+      }
+
+      // Si la señal tiene picos menos pronunciados, es triangular
+      if (abs(*maxValue - dataOfSensor) > threshold && abs(*minValue - dataOfSensor) > threshold) {
+        isTriangular = true;
+        isSinusoidal = false;
+        isSquare = false;
+        isUnknown = false;
+      }
+
+      // Si la señal sube y baja de manera más suave, es sinusoidal
+      else if (abs(dataOfSensor - halfAmplitude) <= threshold) {
+        isSinusoidal = true;
+        isSquare = false;
+        isTriangular = false;
+        isUnknown = false;
+      }
+
+      // Si no se cumple ningún patrón claro, se clasifica como desconocida
+      else {
+        isUnknown = true;
+        isSinusoidal = false;
+        isSquare = false;
         isTriangular = false;
       }
 
@@ -158,14 +214,68 @@ void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor) {
 
   wasRising = isRising;
 
-  if (isSquare) { // Despues se decide como se va a mostrar en el lcd
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Cuadrada");
+  // Despues se decide como se va a mostrar en el lcd
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  if (isSquare) {
+    lcd.print("Onda Cuadrada");
+  } else if (isSinusoidal) {
+    lcd.print("Onda Sinusoidal");
+  } else if (isTriangular) {
+    lcd.print("Onda Triangular");
+  } else if (isUnknown) {
+    lcd.print("Onda Desconocida");
   }
-
-
 }
 
+//Mostrar datos en el lc
+void showDataInLcd(float amplitude, float frecuency, unsigned short typeWave){
+	//typewave
+  	//1 senoidal
+  	//2 triangular
+  	//3 cuadrada
+  	//4 desconocidad
+  lcd.clear();
+  lcd.setCursor(0,0);
 
-
+  switch(typeWave){
+    case 1:
+      lcd.print("Onda senoidal");
+    break;
+    case 2:
+      lcd.print("Onda triangular");
+    break;
+    case 3:
+    	lcd.print("Onda cuadrada");
+    break;
+    case 4:
+    	lcd.print("Desconocida");
+    	delay(2000);
+    	return;
+    break;
+    default:
+    break;
+  }
+  
+  delay(2000);
+  
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Amplitud");
+  lcd.setCursor(0,1);
+  lcd.print(amplitude);
+  lcd.print("V");
+  
+  delay(2000);
+  
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Frecuencia");
+  lcd.setCursor(0,1);
+  lcd.print(frecuency);
+  lcd.print("hz");
+  
+  delay(2000);
+  
+  
+}
