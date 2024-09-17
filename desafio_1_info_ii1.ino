@@ -4,8 +4,11 @@ LiquidCrystal_I2C lcd(0x20,16,2);
 
 void calculatePeriod(unsigned long *period, int dataOfSensor, int *actualValue);
 void calculateAmplitude(int **samplingOfdata, float *amplitude);
-void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor);
+unsigned int calculateTypeOfWave(int *samplingOfData);
 void showDataInLcd(float amplitude, float frecuency, unsigned short typeWave);
+bool checkSquareWave(int *data);
+bool checkTriangularWave(int *data);
+bool checkSinusoidalWave(int *data);
 
 unsigned const short PINSIGNAL = A0; //definicion de pines
 unsigned const short PINPUSHBUTTON1 = 7;
@@ -15,7 +18,8 @@ unsigned const short PINPUSHBUTTON2 = 4;
 bool isRecolecting = false;
 bool stopRecolectiong = false;
 unsigned int index = 0;
-int *samplingOfdata = new int[200];
+const unsigned int SIZE = 50;
+int *samplingOfdata = new int[SIZE];
 
 //amplitud y frecuencia
 unsigned long period = 0, firstTime = 0;
@@ -24,12 +28,6 @@ bool isDecreasing = false;
 int actualValue = 0;
 
 // tipo de onda
-bool isSinusoidal = false;
-bool isTriangular = false;
-bool isSquare = false;
-bool isUnknown = false;
-int maxValue = 0;
-int minValue = 0;
 unsigned short typeWave; 
 
 void setup()
@@ -71,7 +69,9 @@ void loop()
 
     const int dataOfSensor = analogRead(PINSIGNAL); // datos entregados por el generador
     
-    if (index < 200) *(samplingOfdata + index) = dataOfSensor;
+    Serial.println(dataOfSensor);
+
+    if (index < SIZE) *(samplingOfdata + index) = dataOfSensor;
     else index = 0;
    
     
@@ -85,9 +85,6 @@ void loop()
     if (seconds > 0.0){
       frecuency = 1.0 / seconds; // frecuencia
     }
-                         
-    // Calcular tipo de onda
-    //calculateTypeOfWave(&maxValue, &minValue, dataOfSensor);
   }
   
   if (stopRecolectiong){ // BLOQUE DE CODIGO CUANDO SE DETUVO LA RECOLECCION (AQUI VAN LOS ALGORITMOS)
@@ -102,13 +99,15 @@ void loop()
     lcd.clear();
     lcd.setCursor(0,0);
     lcd.print(vol);
-    
-    showDataInLcd(vol, frecuency, 1);
+
+    unsigned int typeWave = calculateTypeOfWave(samplingOfdata);
+
+    showDataInLcd(vol, frecuency, typeWave);
     
     delay(50);
     stopRecolectiong = false;
     
-    for (int i = 0; i < 200; i++) samplingOfdata[i] = 0;
+    //for (int i = 0; i < 200; i++) samplingOfdata[i] = 0;
     
   }
 }
@@ -151,81 +150,6 @@ void calculateAmplitude(int **samplingOfdata, float *amplitude){
   
   *amplitude = (max - min) / 2.0;
  
-}
-
-void calculateTypeOfWave(int *maxValue, int *minValue, int dataOfSensor) {
-
-  if (dataOfSensor > *maxValue) *maxValue = dataOfSensor;
-  if (dataOfSensor < *minValue) *minValue = dataOfSensor;
-
-  // umbrales de tolerancia
-  int amplitude = *maxValue - *minValue;
-  int threshold = amplitude * 0.1; // 10% de la amplitud
-  int halfAmplitude = *minValue + amplitude / 2;
-
-  // verificar si los valores fluctúan rápidamente entre los máximos y mínimos
-  static bool isRising = false;
-  static bool wasRising = false;
-
-  if (dataOfSensor > halfAmplitude + threshold) {
-    isRising = true; // esta subiendo
-  } else if (dataOfSensor < halfAmplitude - threshold) {
-    isRising = false; // esta bajando
-  }
-
-  // Si ha habido un cambio de estado de subida o bajada o viceversa, es triangular o sinusoidal
-  if (wasRising != isRising) {
-    if (isRising) {
-
-      // Si la señal alcanza o se acerca a los picos de forma rápida, es cuadrada
-      if (abs(*maxValue - dataOfSensor) <= threshold || abs(*minValue - dataOfSensor) <= threshold) {
-        isSquare = true;
-        isSinusoidal = false;
-        isTriangular = false;
-        isUnknown = false;
-      }
-
-      // Si la señal tiene picos menos pronunciados, es triangular
-      if (abs(*maxValue - dataOfSensor) > threshold && abs(*minValue - dataOfSensor) > threshold) {
-        isTriangular = true;
-        isSinusoidal = false;
-        isSquare = false;
-        isUnknown = false;
-      }
-
-      // Si la señal sube y baja de manera más suave, es sinusoidal
-      else if (abs(dataOfSensor - halfAmplitude) <= threshold) {
-        isSinusoidal = true;
-        isSquare = false;
-        isTriangular = false;
-        isUnknown = false;
-      }
-
-      // Si no se cumple ningún patrón claro, se clasifica como desconocida
-      else {
-        isUnknown = true;
-        isSinusoidal = false;
-        isSquare = false;
-        isTriangular = false;
-      }
-
-    }
-  }
-
-  wasRising = isRising;
-
-  // Despues se decide como se va a mostrar en el lcd
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  if (isSquare) {
-    lcd.print("Onda Cuadrada");
-  } else if (isSinusoidal) {
-    lcd.print("Onda Sinusoidal");
-  } else if (isTriangular) {
-    lcd.print("Onda Triangular");
-  } else if (isUnknown) {
-    lcd.print("Onda Desconocida");
-  }
 }
 
 //Mostrar datos en el lc
@@ -278,4 +202,97 @@ void showDataInLcd(float amplitude, float frecuency, unsigned short typeWave){
   delay(2000);
   
   
+}
+
+// Función para determinar el tipo de onda
+unsigned int calculateTypeOfWave(int *samplingOfData) {
+
+  if (checkSquareWave(samplingOfData)) {
+    return 3;
+  } 
+  if (checkTriangularWave(samplingOfData)) {
+    return 2;
+  } 
+  if (checkSinusoidalWave(samplingOfData)) {
+    return 1;
+  } 
+  
+  return 4;
+
+}
+
+// Función para identificar una onda cuadrada
+bool checkSquareWave(int *data) {
+  for (int i = 1; i < SIZE - 1; i++) {
+    if (data[i] != data[i - 1] && data[i] != data[i + 1]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// En estas dos funciones se escogio utilizar double debido a la precisión que ofrece con respecto a float
+
+// Función para identificar una onda triangular
+bool checkTriangularWave(int *data) {
+  if (SIZE < 3) {
+        return false; // No hay suficientes datos para hacer la verificación
+    }
+
+    // Calcular la derivada discreta
+    // El resultado es la pendiente entre esos dos puntos
+    double derivate[SIZE - 1];
+    for (int i = 0; i < SIZE - 1; i++) {
+        derivate[i] = data[i + 1] - data[i];
+    }
+
+    // Contar cuántas veces la pendiente cambia abruptamente
+    int abruptChanges = 0;
+    for (int i = 1; i < SIZE - 2; i++) {
+        double changePrevious = derivate[i - 1];
+        double actualChange = derivate[i];
+
+        // Detectar cambios abruptos en la pendiente
+        if (fabs(actualChange - changePrevious) > 10.0) { // Umbral para cambio abrupto
+            abruptChanges++;
+        }
+    }
+
+    // Si hay muchos cambios abruptos
+    if (abruptChanges > (SIZE / 5)) { 
+        return true; // La onda es triangular
+    } else {
+        return false; // La onda no es triangular
+    }
+}
+
+bool checkSinusoidalWave(int* data) {
+    if (SIZE < 3) {
+        return false; // No hay suficientes datos para hacer la verificación
+    }
+
+    // Calcular la derivada discreta
+    double derivate[SIZE - 1];
+    for (int i = 0; i < SIZE - 1; i++) {
+        derivate[i] = data[i + 1] - data[i];
+    }
+
+    // Verificar si las pendientes cambian suavemente
+    double smoothChanges = 0;
+    for (int i = 1; i < SIZE - 2; i++) {
+        double changePrevious = derivate[i - 1];
+        double actualChange = derivate[i];
+
+        // Detectar si los cambios son suaves
+        if (fabs(actualChange - changePrevious) < 5.0) { // Umbral para cambio suave
+            smoothChanges++;
+        }
+    }
+
+    // Si la mayoría de los cambios son suaves
+    if (smoothChanges > (SIZE / 2)) {
+        return true; // La onda es sinusoidal
+    } else {
+        return false; // La onda no es sinusoidal
+    }
 }
