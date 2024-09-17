@@ -4,7 +4,7 @@ LiquidCrystal_I2C lcd(0x20,16,2);
 
 void calculatePeriod(unsigned long *period, int dataOfSensor, int *actualValue);
 void calculateAmplitude(int **samplingOfdata, float *amplitude);
-unsigned int calculateTypeOfWave(int *samplingOfData);
+unsigned short calculateTypeOfWave(int *samplingOfData);
 void showDataInLcd(float amplitude, float frecuency, unsigned short typeWave);
 bool checkSquareWave(int *data);
 bool checkTriangularWave(int *data);
@@ -68,8 +68,6 @@ void loop()
     lcd.print("Recolectando..");
 
     const int dataOfSensor = analogRead(PINSIGNAL); // datos entregados por el generador
-    
-    Serial.println(dataOfSensor);
 
     if (index < SIZE) *(samplingOfdata + index) = dataOfSensor;
     else index = 0;
@@ -100,14 +98,15 @@ void loop()
     lcd.setCursor(0,0);
     lcd.print(vol);
 
-    unsigned int typeWave = calculateTypeOfWave(samplingOfdata);
+    typeWave = calculateTypeOfWave(samplingOfdata);
 
     showDataInLcd(vol, frecuency, typeWave);
     
     delay(50);
     stopRecolectiong = false;
     
-    //for (int i = 0; i < 200; i++) samplingOfdata[i] = 0;
+    for (int i = 0; i < SIZE; i++) samplingOfdata[i] = 0;
+    index = 0;
     
   }
 }
@@ -205,7 +204,7 @@ void showDataInLcd(float amplitude, float frecuency, unsigned short typeWave){
 }
 
 // Función para determinar el tipo de onda
-unsigned int calculateTypeOfWave(int *samplingOfData) {
+unsigned short calculateTypeOfWave(int *samplingOfData) {
 
   if (checkSquareWave(samplingOfData)) {
     return 3;
