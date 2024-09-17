@@ -8,7 +8,6 @@ void calculateTypeOfWave(int *samplingOfData);
 bool checkSquareWave(int *data);
 bool checkTriangularWave(int *data, int size);
 bool checkSinusoidalWave(int *data);
-void identifyWave(int *data);
 
 unsigned const short PINSIGNAL = A0; //definicion de pines
 unsigned const short PINPUSHBUTTON1 = 7;
@@ -106,8 +105,6 @@ void loop()
     // Calcular tipo de onda
     
     calculateTypeOfWave(samplingOfdata);
-    checkSinusoidalWave(samplingOfdata);
-    identifyWave(samplingOfdata);
     delete[] samplingOfdata;
   	samplingOfdata = nullptr;
     isRecolecting = false;
@@ -174,8 +171,6 @@ void calculateTypeOfWave(int *samplingOfData) {
     isUnknown = true;
   }
   
-  Serial.println("triangular");
-  Serial.println(isTriangular);
 
   // Mostrar el resultado en la pantalla LCD
   lcd.clear();
@@ -202,100 +197,70 @@ bool checkSquareWave(int *data) {
   return true;
 }
 
+// En estas dos funciones se escogio utilizar double debido a la precisión que ofrece con respecto a float
+
 // Función para identificar una onda triangular
 bool checkTriangularWave(int *data, int size) {
-  bool isIncreasing = data[1] > data[0];  // Determinar si inicia en subida o bajada
-  int previousValue = data[0];
-
-  for (int i = 1; i < size; i++) {
-    int currentChange = data[i] - previousValue;
-
-    if (isIncreasing) {
-      if (currentChange < 0) {
-        // Cambió de subir a bajar
-        isIncreasing = false;
-      }
-    } else {
-      if (currentChange > 0) {
-        // Cambió de bajar a subir (ya no es triangular)
-        return false;
-      }
+  if (SIZE < 3) {
+        return false; // No hay suficientes datos para hacer la verificación
     }
 
-    // Actualizar el valor anterior para la siguiente comparación
-    previousValue = data[i];
-  }
+    // Calcular la derivada discreta
+    // El resultado es la pendiente entre esos dos puntos
+    double derivate[SIZE - 1];
+    for (int i = 0; i < SIZE - 1; i++) {
+        derivate[i] = data[i + 1] - data[i];
+    }
 
-  // Si terminó en una fase de bajada, entonces es una onda triangular válida
-  return !isIncreasing;
+    // Contar cuántas veces la pendiente cambia abruptamente
+    int abruptChanges = 0;
+    for (int i = 1; i < SIZE - 2; i++) {
+        double changePrevious = derivate[i - 1];
+        double actualChange = derivate[i];
+
+        // Detectar cambios abruptos en la pendiente
+        if (fabs(actualChange - changePrevious) > 10.0) { // Umbral para cambio abrupto
+            abruptChanges++;
+        }
+    }
+
+    // Si hay muchos cambios abruptos
+    if (abruptChanges > (SIZE / 5)) { 
+        return true; // La onda es triangular
+    } else {
+        return false; // La onda no es triangular
+    }
 }
 
-//bool checkSinusoidalWave(int *data) {
-  //unsigned int size = sizeof(data) / sizeof(data[0]);
-  //return !checkSquareWave(data) && !checkTriangularWave(data, size);
-//}
-
-bool checkSinusoidalWave(int *data) {
+bool checkSinusoidalWave(int* data) {
     if (SIZE < 3) {
         return false; // No hay suficientes datos para hacer la verificación
     }
 
-    double derivada[SIZE - 1];
-
     // Calcular la derivada discreta
+    double derivate[SIZE - 1];
     for (int i = 0; i < SIZE - 1; i++) {
-        derivada[i] = data[i + 1] - data[i];
+        derivate[i] = data[i + 1] - data[i];
     }
 
-    // Calcular el promedio y la desviación estándar de la derivada
-    double sum = 0;
-    double sumSq = 0;
+    // Verificar si las pendientes cambian suavemente
+    double smoothChanges = 0;
+    for (int i = 1; i < SIZE - 2; i++) {
+        double changePrevious = derivate[i - 1];
+        double actualChange = derivate[i];
 
-    for (int i = 0; i < SIZE - 1; i++) {
-        sum += derivada[i];
-        sumSq += derivada[i] * derivada[i];
+        // Detectar si los cambios son suaves
+        if (fabs(actualChange - changePrevious) < 5.0) { // Umbral para cambio suave
+            smoothChanges++;
+        }
     }
 
-    double promedio = sum / (SIZE - 1);
-    double desviacion = sqrt((sumSq / (SIZE - 1)) - (promedio * promedio));
-
-    Serial.print("Promedio de la derivada: ");
-    Serial.println(promedio);
-    Serial.print("Desviación estándar de la derivada: ");
-    Serial.println(desviacion);
-
-    // Verificar si la desviación estándar es cercana a cero
-    if (desviacion < 5.0) {
-        return true; // La onda es probable que sea sinusoidal
+    // Si la mayoría de los cambios son suaves
+    if (smoothChanges > (SIZE / 2)) {
+        return true; // La onda es sinusoidal
     } else {
         return false; // La onda no es sinusoidal
     }
 }
 
-
-void identifyWave(int *data) {
-    if (SIZE < 2) {
-        Serial.println("No hay suficientes datos para la verificación de continuidad.");
-        return;
-    }
-
-    double maxDifference = 0.0;
-    double threshold = 10.0; // Umbral para considerar un cambio como una discontinuidad
-
-    for (int i = 0; i < SIZE - 1; i++) {
-        double difference = abs(data[i + 1] - data[i]);
-        if (difference > maxDifference) {
-            maxDifference = difference;
-        }
-    }
-
-    Serial.print("Diferencia máxima entre valores consecutivos: ");
-    Serial.println(maxDifference);
-
-    if (maxDifference > threshold) {
-        Serial.println("La señal puede no ser continua (hay discontinuidades).");
-    } else {
-        Serial.println("La señal parece ser continua.");
-    }
-}
 
